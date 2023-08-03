@@ -1,0 +1,7 @@
+build:
+  uri: https://github.com/tommaso-borgato/3scale-eap
+  ref: main
+  mode: s2i
+  contextDir: demo1
+deploy:
+  replicas: 1
