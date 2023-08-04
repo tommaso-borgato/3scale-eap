@@ -1,0 +1,10 @@
+apiVersion: capabilities.3scale.net/v1beta1
+kind: Product
+metadata:
+  name: eap-demo-service-product
+spec:
+  name: "eap-demo-service Product"
+  systemName: "eap-demo-service-product"
+  backendUsages:
+    eap-demo-service-backend:
+      path: /eap-demo-service

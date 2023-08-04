@@ -1,0 +1,8 @@
+apiVersion: capabilities.3scale.net/v1beta1
+kind: ProxyConfigPromote
+metadata:
+  name: proxyconfigpromote-sample
+spec:
+  productCRName: eap-demo-service-product
+  production: true
+  deleteCR: true

@@ -1,0 +1,8 @@
+apiVersion: capabilities.3scale.net/v1beta1
+kind: Backend
+metadata:
+  name: eap-demo-service-backend
+spec:
+  name: "eap-demo-service Backend"
+  systemName: "eap-demo-service-backend"
+  privateBaseURL: "http://eap-demo-service:8080/api/ping"
