@@ -8,6 +8,22 @@ helm install eap-demo-service wildfly/wildfly -f helm.yaml
 
 ### Install 3scale operator
 
+We must use mas operator: http://quay.io/integreatly/3scale-index:v0.11.6-mas (https://github.com/integr8ly/integreatly-operator/blob/master/products/installation.yaml#L63) because the `Application` resource hasn't
+been released yet in the Operator version we have on OpenShift:
+
+```shell
+cat << EOF | oc create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: threescalemaslatest
+  namespace: openshift-marketplace
+spec:
+  sourceType: grpc
+  image: quay.io/integreatly/3scale-index:v0.11.6-mas
+EOF
+```
+
 This is taken from [3scale-operator/pull/778](https://github.com/3scale/3scale-operator/pull/778):
 
 ```shell
@@ -39,7 +55,7 @@ spec:
       replicas: 1
     stagingSpec:
       replicas: 1
-  wildcardDomain: 3scale-test.apps.eapqe-031-giiq.eapqe.psi.redhat.com
+  wildcardDomain: 3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com
 EOF
 
 oc apply -f /tmp/APIManager.yaml
@@ -74,8 +90,6 @@ spec:
   email: myusername01@example.com
   passwordCredentialsRef:
     name: myusername01
-  providerAccountRef:
-    name: mytenant
   role: admin
   username: myusername01
 EOF
@@ -89,8 +103,6 @@ metadata:
   name: developeraccount01
 spec:
   orgName: pstefans3
-  providerAccountRef:
-    name: mytenant
 EOF
 
 oc apply -f /tmp/developeraccount01.yaml
@@ -162,7 +174,6 @@ apiVersion: capabilities.3scale.net/v1beta1
 kind: Application
 metadata:
   name: example-application
-  namespace: 3scale-wf
 spec:
   accountCR: 
     name: developeraccount01
@@ -176,6 +187,31 @@ EOF
 oc apply -f /tmp/example-application.yaml
 ```
 
+Promote your config:
+```shell
+cat << EOF | oc create -f -
+apiVersion: capabilities.3scale.net/v1beta1
+kind: ProxyConfigPromote
+metadata:
+  name: proxyconfigpromote-sample
+spec:
+  productCRName: product1-cr
+  production: true
+  deleteCR: true
+EOF
+```
+
+Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3scale-admin.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/
+
+User key e.g. https://3scale-admin.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/p/admin/applications/10
+API URL e.g. https://product1-3scale-apicast-production.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com
+
+curl -k "https://product1-3scale-apicast-staging.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
+
+curl -k "https://product1-3scale-apicast-production.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
+
+
+curl -k "https://product1-3scale-apicast-staging.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
 
 
 
