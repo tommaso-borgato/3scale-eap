@@ -24,10 +24,41 @@ spec:
 EOF
 ```
 
+```shell
+export NAMESPACE=3scale-tst-1
+
+cat << EOF | oc create -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  annotations:
+  name: $NAMESPACE-operators
+  namespace: $NAMESPACE
+spec:
+  targetNamespaces:
+    - $NAMESPACE
+  upgradeStrategy: Default
+EOF
+
+cat << EOF | oc create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: 3scale-operator
+spec:
+  channel: threescale-mas
+  installPlanApproval: Automatic
+  name: 3scale-operator
+  source: threescalemaslatest
+  sourceNamespace: openshift-marketplace
+  startingCSV: 3scale-operator.v0.11.6-mas
+EOF
+```
+
 This is taken from [3scale-operator/pull/778](https://github.com/3scale/3scale-operator/pull/778):
 
 ```shell
-cat <<EOF > /tmp/APIManager.yaml
+cat << EOF | oc create -f -
 apiVersion: apps.3scale.net/v1alpha1
 kind: APIManager
 metadata:
@@ -55,16 +86,14 @@ spec:
       replicas: 1
     stagingSpec:
       replicas: 1
-  wildcardDomain: 3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com
+  wildcardDomain: $NAMESPACE.apps.eapqe-031-giiq.eapqe.psi.redhat.com
 EOF
-
-oc apply -f /tmp/APIManager.yaml
 ```
 
 Create a secret to hold credentials of your `DeveloperUser`:
 
 ```shell
-cat <<EOF > /tmp/myusername01-secret.yaml
+cat << EOF | oc create -f -
 apiVersion: v1
 kind: Secret
 metadata:
@@ -72,14 +101,12 @@ metadata:
 stringData:
   password: "123456"
 EOF
-
-oc apply -f /tmp/myusername01-secret.yaml
 ```
 
 Create a `DeveloperUser` and `DeveloperAccount` to access our API:
 
 ```shell
-cat <<EOF > /tmp/developeruser01.yaml
+cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperUser
 metadata:
@@ -94,9 +121,7 @@ spec:
   username: myusername01
 EOF
 
-oc apply -f /tmp/developeruser01.yaml
-
-cat <<EOF > /tmp/developeraccount01.yaml
+cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperAccount
 metadata:
@@ -104,14 +129,12 @@ metadata:
 spec:
   orgName: pstefans3
 EOF
-
-oc apply -f /tmp/developeraccount01.yaml
 ```
 
 Create a `Backend` for the API provided by EAP:
 
 ```shell
-cat <<EOF > /tmp/backend1-cr.yaml
+cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Backend
 metadata:
@@ -127,14 +150,12 @@ spec:
   privateBaseURL: 'http://eap-demo-service:8080/api/ping'
   systemName: backend1
 EOF
-
-oc apply -f /tmp/backend1-cr.yaml
 ```
 
 Create a `Product` to expose the `Backend`, note that it defines `applicationPlans`: 
 
 ```shell
-cat <<EOF > /tmp/product1-cr.yaml
+cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Product
 metadata:
@@ -162,14 +183,19 @@ spec:
     backend1:
       path: /eap-demo-service
 EOF
+```
 
-oc apply -f /tmp/product1-cr.yaml
+Wait for the resources to be `Synced`:
+
+```shell
+oc wait --for=condition=Synced --timeout=-1s backend/backend1
+oc wait --for=condition=Synced --timeout=-1s product/product1
 ```
 
 Create an `Application` to link:
 
 ```shell
-cat <<EOF > /tmp/example-application.yaml
+cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Application
 metadata:
@@ -183,8 +209,6 @@ spec:
   name: testApp
   description: testing eap-demo-service with developeraccount01 and plan01
 EOF
-
-oc apply -f /tmp/example-application.yaml
 ```
 
 Promote your config:
@@ -201,17 +225,15 @@ spec:
 EOF
 ```
 
-Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3scale-admin.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/
+Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3scale-admin.$NAMESPACE.apps.eapqe-031-giiq.eapqe.psi.redhat.com/
 
-User key e.g. https://3scale-admin.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/p/admin/applications/10
-API URL e.g. https://product1-3scale-apicast-production.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com
+Go to "Applications" --> "Integration" --> "Configuration", e.g.:
 
-curl -k "https://product1-3scale-apicast-staging.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
+```shell
+curl -k "https://product1-3scale-apicast-staging.3scale-tst-1.apps.eapqe-031-giiq.eapqe.psi.redhat.com:443/eap-demo-service?user_key=79a2f2b932b5772bf34b69110361cdf4"
+```
 
-curl -k "https://product1-3scale-apicast-production.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
 
-
-curl -k "https://product1-3scale-apicast-staging.3scale-tst.apps.eapqe-031-giiq.eapqe.psi.redhat.com/eap-demo-service?user_key=4878ef4b0f158a88c93f51e9bc84f01d"
 
 
 
