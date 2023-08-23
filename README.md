@@ -6,6 +6,13 @@
 helm install eap-demo-service wildfly/wildfly -f helm.yaml
 ```
 
+After installation completes, your application is available at e.g.:
+
+```shell
+$ curl -k https://eap-demo-service-3scale1.apps.sultan-7bep.eapqe.psi.redhat.com/api/ping
+<html><body><h3>Ping Service Servlet</h3></body></html>
+```
+
 ### Install 3scale operator
 
 We must use mas operator: http://quay.io/integreatly/3scale-index:v0.11.6-mas (https://github.com/integr8ly/integreatly-operator/blob/master/products/installation.yaml#L63) because the `Application` resource hasn't
@@ -25,7 +32,8 @@ EOF
 ```
 
 ```shell
-export NAMESPACE=3scale-tst-1
+# current namespace
+export NAMESPACE=$(oc config view --minify -o 'jsonpath={..namespace}')
 
 cat << EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
@@ -58,6 +66,11 @@ EOF
 This is taken from [3scale-operator/pull/778](https://github.com/3scale/3scale-operator/pull/778):
 
 ```shell
+# current namespace
+export NAMESPACE=$(oc config view --minify -o 'jsonpath={..namespace}')
+# same as web console host but prefixed with namespace
+export API_MANAGER_WILDCARD=$(oc get routes/console -n openshift-console -o jsonpath='{.spec.host}' | sed "s/console-openshift-console/$NAMESPACE/")
+
 cat << EOF | oc create -f -
 apiVersion: apps.3scale.net/v1alpha1
 kind: APIManager
@@ -86,8 +99,15 @@ spec:
       replicas: 1
     stagingSpec:
       replicas: 1
-  wildcardDomain: $NAMESPACE.apps.eapqe-031-giiq.eapqe.psi.redhat.com
+  wildcardDomain: $API_MANAGER_WILDCARD
 EOF
+```
+
+You can retrieve the credentials to access your 3Scale admin GUI (e.g. https://3scale-admin.3scale1.apps.eapqe-031-giiq.eapqe.psi.redhat.com) with the following:
+
+```shell
+oc get secret/system-seed -o jsonpath='{.data.ADMIN_USER}' | base64 --decode
+oc get secret/system-seed -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 --decode
 ```
 
 Create a secret to hold credentials of your `DeveloperUser`:
@@ -108,6 +128,15 @@ Create a `DeveloperUser` and `DeveloperAccount` to access our API:
 ```shell
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
+kind: DeveloperAccount
+metadata:
+  name: developeraccount01
+spec:
+  orgName: eapqe
+EOF
+
+cat << EOF | oc create -f -
+apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperUser
 metadata:
   name: developeruser01
@@ -120,15 +149,6 @@ spec:
   role: admin
   username: myusername01
 EOF
-
-cat << EOF | oc create -f -
-apiVersion: capabilities.3scale.net/v1beta1
-kind: DeveloperAccount
-metadata:
-  name: developeraccount01
-spec:
-  orgName: pstefans3
-EOF
 ```
 
 Create a `Backend` for the API provided by EAP:
@@ -138,58 +158,44 @@ cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Backend
 metadata:
-  name: backend1-cr
+  name: eap-demo-backend-cr
 spec:
-  mappingRules:
-    - httpMethod: GET
-      increment: 1
-      last: true
-      metricMethodRef: hits
-      pattern: /
-  name: backend1
+  name: "Eap-demo Backend"
   privateBaseURL: 'http://eap-demo-service:8080/api/ping'
-  systemName: backend1
+  systemName: eap-demo-backend
 EOF
 ```
 
-Create a `Product` to expose the `Backend`, note that it defines `applicationPlans`: 
+Create a `Product` to expose the `Backend`, note that `Product` contains `applicationPlans`: 
 
 ```shell
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Product
 metadata:
-  name: product1-cr
+  name: eap-demo-product-cr
 spec:
   applicationPlans:
     plan01:
-      name: "My Plan 01"
+      name: "Eap-demo-product Plan"
       limits:
         - period: month
-          value: 300
+          value: 3000
           metricMethodRef:
             systemName: hits
-            backend: backend1
-    plan02:
-      name: "My Plan 02"
-      limits:
-        - period: month
-          value: 300
-          metricMethodRef:
-            systemName: hits
-            backend: backend1
-  name: product1
+            backend: eap-demo-backend
+  name: eap-demo-product
   backendUsages:
-    backend1:
-      path: /eap-demo-service
+    eap-demo-backend:
+      path: /eap-demo-api
 EOF
 ```
 
 Wait for the resources to be `Synced`:
 
 ```shell
-oc wait --for=condition=Synced --timeout=-1s backend/backend1
-oc wait --for=condition=Synced --timeout=-1s product/product1
+oc wait --for=condition=Synced --timeout=-1s backend/eap-demo-backend
+oc wait --for=condition=Synced --timeout=-1s product/eap-demo-product
 ```
 
 Create an `Application` to link:
@@ -205,9 +211,9 @@ spec:
     name: developeraccount01
   applicationPlanName: plan01
   productCR: 
-    name: product1-cr
+    name: eap-demo-product-cr
   name: testApp
-  description: testing eap-demo-service with developeraccount01 and plan01
+  description: testing eap-demo-api with developeraccount01 and plan01
 EOF
 ```
 
@@ -219,7 +225,7 @@ kind: ProxyConfigPromote
 metadata:
   name: proxyconfigpromote-sample
 spec:
-  productCRName: product1-cr
+  productCRName: eap-demo-product-cr
   production: true
   deleteCR: true
 EOF
@@ -230,182 +236,5 @@ Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3
 Go to "Applications" --> "Integration" --> "Configuration", e.g.:
 
 ```shell
-curl -k "https://product1-3scale-apicast-staging.3scale-tst-1.apps.eapqe-031-giiq.eapqe.psi.redhat.com:443/eap-demo-service?user_key=79a2f2b932b5772bf34b69110361cdf4"
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-TODO: delete the following one working 
-
-https://access.redhat.com/documentation/en-us/red_hat_3scale_api_management/2.13/html-single/installing_3scale/index
-
-```yaml
-apiVersion: apps.3scale.net/v1alpha1
-kind: APIManager
-metadata:
-  name: apimanager-sample
-spec:
-  system:
-    appSpec:
-      replicas: 1
-    sidekiqSpec:
-      replicas: 1
-  zync:
-    appSpec:
-      replicas: 1
-    queSpec:
-      replicas: 1
-  backend:
-    cronSpec:
-      replicas: 1
-    listenerSpec:
-      replicas: 1
-    workerSpec:
-      replicas: 1
-  apicast:
-    productionSpec:
-      replicas: 1
-    stagingSpec:
-      replicas: 1
-  wildcardDomain: 3scale-test.apps.eapqe-031-giiq.eapqe.psi.redhat.com
-```
-
-Admin Portal URL: `3scale-admin.3scale-wf.apps.eapqe-031-giiq.eapqe.psi.redhat.com`
-
-- https://access.redhat.com/documentation/en-us/red_hat_3scale_api_management/2.13/html-single/operating_3scale/index#deploying-first-product-backend
-- https://github.com/3scale/3scale-operator/pull/778
-- https://github.com/3scale/3scale-operator/tree/master/doc/cr_samples
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: Backend
-metadata:
-  name: eap-demo-service-backend
-spec:
-  name: "eap-demo-service Backend"
-  systemName: "eap-demo-service-backend"
-  privateBaseURL: "http://eap-demo-service:8080/api/ping"
-```
-
-```shell
-oc apply -f example/backend.yaml
-```
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: Product
-metadata:
-  name: eap-demo-service-product
-spec:
-  name: "eap-demo-service Product"
-  systemName: "eap-demo-service-product"
-  backendUsages:
-    eap-demo-service-backend:
-      path: /eap-demo-service
-```
-
-```shell
-oc apply -f example/product.yaml
-
-oc wait --for=condition=Synced --timeout=-1s backend/backend1
-oc wait --for=condition=Synced --timeout=-1s product/product1
-```
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: ProxyConfigPromote
-metadata:
-  name: proxyconfigpromote-sample
-spec:
-  productCRName: eap-demo-service-product
-  production: true
-  deleteCR: true
-```
-
-```shell
-oc apply -f example/proxyConfigPromote.yaml
-```
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: Application
-metadata:
-  name: eap-demo-service-application
-spec:
-  accountCR:
-    name: "developeraccount-sample"
-  applicationPlanName: "plan01"
-  productCR:
-    name: "eap-demo-service-product"
-  name: "EapDemoApp"
-  description: "eap-demo-service testing application "
-  suspend: false
-```
-
-TODO: 
-https://api-3scale-apicast-staging.3scale-wf.apps.eapqe-031-giiq.eapqe.psi.redhat.com/echo-int?user_key=8e6c3b92a8a30d356952b674af193ac9
-
-- email: eastizle+3scaleoperator@redhat.com
-  name: Eguzki Astiz Lezaun
-- email: mstoklus@redhat.com
-  name: Michal Stokluska
-- email: aucunnin@redhat.com
-  name: Austin Cunningham
-
-### Install upstream 3scale with the Operator
-
-https://github.com/3scale/3scale-operator/blob/master/doc/operator-user-guide.md
-
-```yaml
-apiVersion: apps.3scale.net/v1alpha1
-kind: APIManager
-metadata:
-  name: apimanager-sample
-  namespace: 3scale-eap
-spec:
-  wildcardDomain: 3scale-eap.apps.eapqe-031-giiq.eapqe.psi.redhat.com
-```
-
-https://github.com/3scale/3scale-operator/blob/v0.10.1/doc/operator-application-capabilities.md
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: Backend
-metadata:
-  name: eap-demo-service-backend
-spec:
-  name: "eap-demo-service backend"
-  systemName: "eap-demo-service"
-  privateBaseURL: "http://eap-demo-service:8080/api/ping"
-```
-
-```yaml
-apiVersion: capabilities.3scale.net/v1beta1
-kind: Product
-metadata:
-  name: eap-demo-service-product
-spec:
-  name: "eap-demo-service product"
-  systemName: "operated-eap-demo-service-product"
-  backendUsages:
-    eap-demo-service-backend:
-      path: /
+curl -k "https://eap-demo-product-3scale-apicast-staging.3scale-tst-1.apps.eapqe-031-giiq.eapqe.psi.redhat.com:443/eap-demo-api?user_key=79a2f2b932b5772bf34b69110361cdf4"
 ```
