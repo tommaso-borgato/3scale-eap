@@ -106,8 +106,17 @@ EOF
 You can retrieve the credentials to access your 3Scale admin GUI (e.g. https://3scale-admin.3scale1.apps.eapqe-031-giiq.eapqe.psi.redhat.com) with the following:
 
 ```shell
-oc get secret/system-seed -o jsonpath='{.data.ADMIN_USER}' | base64 --decode
-oc get secret/system-seed -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 --decode
+export ADMIN_USER=$(oc get secret/system-seed -o jsonpath='{.data.ADMIN_USER}' | base64 --decode)
+echo "ADMIN_USER=$ADMIN_USER"
+
+export ADMIN_PASSWORD=$(oc get secret/system-seed -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 --decode)
+echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
+
+export ADMIN_ACCESS_TOKEN=$(oc get secret/system-seed -o jsonpath='{.data.ADMIN_ACCESS_TOKEN}' | base64 --decode)
+echo "ADMIN_ACCESS_TOKEN=$ADMIN_ACCESS_TOKEN"
+
+export ADMIN_URL="https://"$(oc get route -l "zync.3scale.net/route-to=system-provider" -o jsonpath='{.items[0].spec.host}')
+echo "ADMIN_URL=$ADMIN_URL"
 ```
 
 Create a secret to hold credentials of your `DeveloperUser`:
@@ -117,7 +126,18 @@ cat << EOF | oc create -f -
 apiVersion: v1
 kind: Secret
 metadata:
-  name: myusername01
+  name: mytenant
+type: Opaque
+stringData:
+  adminURL: $ADMIN_URL
+  token: "$ADMIN_ACCESS_TOKEN"
+EOF
+
+cat << EOF | oc create -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myusername001
 stringData:
   password: "123456"
 EOF
@@ -130,24 +150,28 @@ cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperAccount
 metadata:
-  name: developeraccount01
+  name: developeraccount001
 spec:
   orgName: eapqe
+  providerAccountRef:
+    name: mytenant
 EOF
 
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperUser
 metadata:
-  name: developeruser01
+  name: developeruser001
 spec:
   developerAccountRef:
-    name: developeraccount01
-  email: myusername01@example.com
+    name: developeraccount001
+  email: tborgato@redhat.com
   passwordCredentialsRef:
-    name: myusername01
+    name: myusername001
+  providerAccountRef:
+    name: mytenant
   role: admin
-  username: myusername01
+  username: myusername001
 EOF
 ```
 
@@ -175,6 +199,12 @@ kind: Product
 metadata:
   name: eap-demo-product-cr
 spec:
+  mappingRules:
+    - httpMethod: GET
+      increment: 1
+      last: true
+      metricMethodRef: hits
+      pattern: /eap-demo-api
   applicationPlans:
     plan01:
       name: "Eap-demo-product Plan"
@@ -205,15 +235,15 @@ cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Application
 metadata:
-  name: example-application
+  name: eap-demo-application
 spec:
   accountCR: 
-    name: developeraccount01
+    name: developeraccount001
   applicationPlanName: plan01
   productCR: 
     name: eap-demo-product-cr
-  name: testApp
-  description: testing eap-demo-api with developeraccount01 and plan01
+  name: EapDemoApp
+  description: testing eap-demo-api with developeraccount001 and plan01
 EOF
 ```
 
@@ -236,5 +266,5 @@ Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3
 Go to "Applications" --> "Integration" --> "Configuration", e.g.:
 
 ```shell
-curl -k "https://eap-demo-product-3scale-apicast-staging.3scale-tst-1.apps.eapqe-031-giiq.eapqe.psi.redhat.com:443/eap-demo-api?user_key=79a2f2b932b5772bf34b69110361cdf4"
+curl -k "https://eapdemoproduct-3scale-apicast-staging.3scale3.apps.sultan-7bep.eapqe.psi.redhat.com:443/eap-demo-api?user_key=c13bec2c3c2d7efc697864edfce52134"
 ```
