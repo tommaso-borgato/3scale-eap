@@ -199,6 +199,12 @@ kind: Product
 metadata:
   name: eap-demo-product-cr
 spec:
+  # this is optional: it is for having a stable name for the path parameter
+  deployment:
+    apicastHosted:
+      authentication:
+        userkey:
+          authUserKey: "user_key"
   mappingRules:
     - httpMethod: GET
       increment: 1
@@ -268,3 +274,26 @@ Go to "Applications" --> "Integration" --> "Configuration", e.g.:
 ```shell
 curl -k "https://eapdemoproduct-3scale-apicast-staging.3scale3.apps.sultan-7bep.eapqe.psi.redhat.com:443/eap-demo-api?user_key=c13bec2c3c2d7efc697864edfce52134"
 ```
+
+TODO: get user_key like:
+
+1. Retrieve admin access token from the system-seed secret:
+   export THREESCALE_NAMESPACE=<WHERE YOUR 3scale instance lives>
+   ADMIN_TOKEN=$(oc get secrets/system-seed -n $THREESCALE_NAMESPACE -o template --template={{.data.ADMIN_ACCESS_TOKEN}} | base64 -d)
+   Assumption is that the tenant your are doing it for is the default 3scale tenant. If not the tenant token can be obtained from the secret created during tenant creation (if tenant was created via CR
+
+2. Make an API call to retrieve the applications under that tenant
+   curl -X 'GET' "https://<TENANT_NAME>-admin.<DOMAIN>/admin/api/applications.xml?access_token=$ADMIN_TOKEN&page=1&per_page=500" \
+   -H 'accept: */*'
+
+For example:
+curl -X 'GET' "https://3scale-admin.<YOUR_CLUSTER>/admin/api/applications.xml?access_token=$ADMIN_TOKEN&page=1&per_page=500" \
+-H 'accept: */*'
+
+This will return all the applications and the app tokens (the one that's referred to as "user_token" when making a call against apicast). If you only have one app (the default one) you can fetch app token from the output.
+If more, find the app ID you are interested in and proceed
+
+3. Fetch the user key of application found by ID
+   curl -X 'GET' \
+   "https://3scale-admin.<YOUR_CLUSTER>/admin/api/applications/find.xml?access_token=$ADMIN_TOKEN&application_id=5" \
+   -H 'accept: */*'
