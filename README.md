@@ -1,4 +1,24 @@
-## Exposing EAP services though EAP
+## Exposing EAP services though 3Scale APIs
+
+### Quick intro to 3scale
+
+Let's say you have a set of internal APIs; for example you might be the owner of a small online business where customers place orders and then you proceed with shipping the orders; in this case, you might need at least the following APIs:
+- "Items" API
+- "Orders" API
+- "Shipments" API 
+
+In `3scale`, "Backends" are used to register each internal API with `3scale` itself:
+- "Items" API --> "Items" Backend
+- "Orders" API --> "Orders" Backend
+- "Shipments" API --> "Shipments" Backend
+
+In `3scale`, a "Product" can be seen as a bundle of APIs with the purpose of serving a specific business goal: ultimately, a Product is what you expose to customers; e.g. placing orders needs access to the "Items" and "Orders" backend APIs:
+- "Place Order" Product: includes "Items" Backend + "Orders" Backend
+
+Before publicly exposing a Product, you must define the rules under which the Product can be used: e.g. limit the number of Orders that can be placed in a specific amount of time; In `3scale`, you do this using an "Application Plan"; 
+A Product can have one or several Application Plans: for example, a “standard” plan that offers only a set of features with a limit on the number of requests per day/month and a “premium” plan that offers unlimited requests.
+
+In `3scale`, security protocols are defined at the Product API level;
 
 ### Install your service
 
@@ -218,11 +238,19 @@ spec:
       metricMethodRef: hits
       pattern: /eap-demo-api
   applicationPlans:
-    plan02:
-      name: "Eap-demo-product Plan"
+    standardPlan02:
+      name: "Eap-demo-product Standard Plan"
       limits:
         - period: month
           value: 3000
+          metricMethodRef:
+            systemName: hits
+            backend: eap-demo-backend
+    premiumPlan02:
+      name: "Eap-demo-product Premium Plan"
+      limits:
+        - period: month
+          value: 100000
           metricMethodRef:
             systemName: hits
             backend: eap-demo-backend
@@ -240,10 +268,11 @@ oc wait --for=condition=Synced --timeout=-1s backend/eap-demo-backend-cr
 oc wait --for=condition=Synced --timeout=-1s product/eap-demo-product-cr
 ```
 
-Create an `Application` to link:
+Create an `Application` to link everything together:
 
 ```shell
 export APPLICATION_NAME=EapDemoApp
+
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Application
@@ -252,11 +281,11 @@ metadata:
 spec:
   accountCR: 
     name: eapqedevaccount02
-  applicationPlanName: plan02
+  applicationPlanName: standardPlan02
   productCR: 
     name: eap-demo-product-cr
   name: $APPLICATION_NAME
-  description: testing eap-demo-api with eapqedevaccount02 and plan02
+  description: testing eap-demo-api with eapqedevaccount02 and standardPlan02
 EOF
 ```
 
