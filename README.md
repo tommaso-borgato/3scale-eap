@@ -34,6 +34,7 @@ EOF
 ```shell
 # current namespace
 export NAMESPACE=$(oc config view --minify -o 'jsonpath={..namespace}')
+echo "NAMESPACE=$NAMESPACE"
 
 cat << EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
@@ -63,13 +64,18 @@ spec:
 EOF
 ```
 
+### Install 3scale and configure Products, Backend etc.
+
 This is taken from [3scale-operator/pull/778](https://github.com/3scale/3scale-operator/pull/778):
 
 ```shell
 # current namespace
 export NAMESPACE=$(oc config view --minify -o 'jsonpath={..namespace}')
+echo "NAMESPACE=$NAMESPACE"
+
 # same as web console host but prefixed with namespace
 export API_MANAGER_WILDCARD=$(oc get routes/console -n openshift-console -o jsonpath='{.spec.host}' | sed "s/console-openshift-console/$NAMESPACE/")
+echo "API_MANAGER_WILDCARD=$API_MANAGER_WILDCARD"
 
 cat << EOF | oc create -f -
 apiVersion: apps.3scale.net/v1alpha1
@@ -126,7 +132,7 @@ cat << EOF | oc create -f -
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mytenant
+  name: eapqetenant
 type: Opaque
 stringData:
   adminURL: $ADMIN_URL
@@ -137,7 +143,7 @@ cat << EOF | oc create -f -
 apiVersion: v1
 kind: Secret
 metadata:
-  name: myusername001
+  name: eapqeusername02
 stringData:
   password: "123456"
 EOF
@@ -150,28 +156,28 @@ cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperAccount
 metadata:
-  name: developeraccount001
+  name: eapqedevaccount02
 spec:
   orgName: eapqe
   providerAccountRef:
-    name: mytenant
+    name: eapqetenant
 EOF
 
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: DeveloperUser
 metadata:
-  name: developeruser001
+  name: eapqedevuser02
 spec:
   developerAccountRef:
-    name: developeraccount001
-  email: tborgato@redhat.com
+    name: eapqedevaccount02
+  email: eapqedevuser02@redhat.com
   passwordCredentialsRef:
-    name: myusername001
+    name: eapqeusername02
   providerAccountRef:
-    name: mytenant
+    name: eapqetenant
   role: admin
-  username: myusername001
+  username: eapqeusername02
 EOF
 ```
 
@@ -212,7 +218,7 @@ spec:
       metricMethodRef: hits
       pattern: /eap-demo-api
   applicationPlans:
-    plan01:
+    plan02:
       name: "Eap-demo-product Plan"
       limits:
         - period: month
@@ -230,13 +236,14 @@ EOF
 Wait for the resources to be `Synced`:
 
 ```shell
-oc wait --for=condition=Synced --timeout=-1s backend/eap-demo-backend
-oc wait --for=condition=Synced --timeout=-1s product/eap-demo-product
+oc wait --for=condition=Synced --timeout=-1s backend/eap-demo-backend-cr
+oc wait --for=condition=Synced --timeout=-1s product/eap-demo-product-cr
 ```
 
 Create an `Application` to link:
 
 ```shell
+export APPLICATION_NAME=EapDemoApp
 cat << EOF | oc create -f -
 apiVersion: capabilities.3scale.net/v1beta1
 kind: Application
@@ -244,12 +251,12 @@ metadata:
   name: eap-demo-application
 spec:
   accountCR: 
-    name: developeraccount001
-  applicationPlanName: plan01
+    name: eapqedevaccount02
+  applicationPlanName: plan02
   productCR: 
     name: eap-demo-product-cr
-  name: EapDemoApp
-  description: testing eap-demo-api with developeraccount001 and plan01
+  name: $APPLICATION_NAME
+  description: testing eap-demo-api with eapqedevaccount02 and plan02
 EOF
 ```
 
@@ -267,15 +274,37 @@ spec:
 EOF
 ```
 
-Now access Admin Portal with credentials in secret `system-seed`; e.g. https://3scale-admin.$NAMESPACE.apps.eapqe-031-giiq.eapqe.psi.redhat.com/
+### Invoke your API exposed by 3scale
 
-Go to "Applications" --> "Integration" --> "Configuration", e.g.:
+To invoke your newly exposed API, you need its URL and the `user_key` used to secure it;
+
+You can get them both by accessing the Admin Portal with credentials in secret `system-seed`; e.g. https://3scale-admin.$NAMESPACE.apps.eapqe-031-giiq.eapqe.psi.redhat.com/
+
+Then Go to "Applications" --> "Integration" --> "Configuration" and you'll find everything;
+
+Alternatively, you can do it in an automated way like in the following:
 
 ```shell
-curl -k "https://eapdemoproduct-3scale-apicast-staging.3scale3.apps.sultan-7bep.eapqe.psi.redhat.com:443/eap-demo-api?user_key=c13bec2c3c2d7efc697864edfce52134"
+export ADMIN_ACCESS_TOKEN=$(oc get secret/system-seed -o jsonpath='{.data.ADMIN_ACCESS_TOKEN}' | base64 --decode)
+echo "ADMIN_ACCESS_TOKEN=$ADMIN_ACCESS_TOKEN"
+
+export ADMIN_URL="https://"$(oc get route -l "zync.3scale.net/route-to=system-provider" -o jsonpath='{.items[0].spec.host}')
+echo "ADMIN_URL=$ADMIN_URL"
+
+curl -k -X 'GET' "$ADMIN_URL/admin/api/applications.xml?access_token=$ADMIN_ACCESS_TOKEN&page=1&per_page=500" -H 'accept: */*' > /tmp/user_key.html
+export APPLICATION_NAME=EapDemoApp
+export USER_KEY=$(xmllint --xpath "//application[name[text()='$APPLICATION_NAME']]/user_key/text()" /tmp/user_key.html) 
+
+export APICAST_STAGING_URL="https://"$(oc get route -l "zync.3scale.net/route-to=apicast-staging" -o jsonpath='{.items[0].spec.host}')
+echo "APICAST_STAGING_URL=$APICAST_STAGING_URL"
+   
+curl -k "$APICAST_STAGING_URL/eap-demo-api?user_key=$USER_KEY"
 ```
 
-TODO: get user_key like:
+
+### Note: general procedure to get the `user_key` automatically
+
+The general procedure to get the `user_key` automatically, is the following:
 
 1. Retrieve admin access token from the system-seed secret:
    export THREESCALE_NAMESPACE=<WHERE YOUR 3scale instance lives>
